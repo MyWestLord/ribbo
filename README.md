@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.jpg" alt="RIBBO, the little robot frog" width="100%">
+  <img src="assets/ribbo-banner.jpg" alt="RIBBO, the little robot frog" width="100%">
 </p>
 
 <h1 align="center">RIBBO 🐸🤖</h1>
@@ -91,7 +91,7 @@ ribbo/
 ├── media/
 │   └── ribbo-dance.mp4     # the final video (1280×720, 30 fps, 19 s)
 ├── assets/
-│   ├── banner.jpg
+│   ├── ribbo-banner.jpg
 │   ├── preview.gif
 │   └── stills/             # key frames from each section
 └── docs/
