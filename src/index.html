@@ -1,0 +1,325 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>RIBBO</title>
+<style>
+html,body{margin:0;background:#000;overflow:hidden}
+#wrap{position:relative;width:1280px;height:720px;overflow:hidden}
+canvas{display:block;width:1280px;height:720px}
+#hud{position:absolute;top:20px;right:24px;font:500 12px/1.55 'DejaVu Sans Mono',monospace;color:rgba(255,255,255,.85);text-align:right;text-shadow:0 1px 6px rgba(0,0,0,.8);white-space:pre}
+#tag{position:absolute;left:28px;bottom:26px;color:#fff;font:700 15px 'Inter','DejaVu Sans',sans-serif;letter-spacing:.16em;opacity:0;text-shadow:0 1px 8px rgba(0,0,0,.8)}
+#tag b{display:inline-block;background:#ff2b3a;color:#fff;padding:4px 10px;border-radius:5px;margin-right:12px;letter-spacing:.14em;font-weight:900;text-shadow:none}
+#title{position:absolute;left:0;right:0;top:22px;text-align:center;opacity:0}
+#title .big{display:inline-block;font:900 140px/1 'Inter Display','Inter',sans-serif;letter-spacing:.05em;background:linear-gradient(90deg,#ff4d7d,#ffb43a 30%,#7dff6a 55%,#46c8ff 78%,#b866ff);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 6px 14px rgba(20,0,30,.75)) drop-shadow(0 0 24px rgba(255,90,170,.55))}
+#title .sub{font:700 19px 'Inter',sans-serif;color:#fff;letter-spacing:.34em;margin-top:4px;text-shadow:0 1px 10px rgba(0,0,0,.95)}
+#fade{position:absolute;left:0;top:0;right:0;bottom:0;background:#000;opacity:0}
+</style></head><body>
+<div id="wrap"><canvas id="c" width="1280" height="720"></canvas><div id="hud"></div>
+<div id="tag"><b>RIBBO</b>ROBOT FROG · DANCE MODE</div>
+<div id="title"><div class="big">RIBBO</div><div class="sub">THE LITTLE ROBOT FROG</div></div>
+<div id="fade"></div></div>
+<script>
+const W=1280,H=720,TAU=Math.PI*2;
+const cv=document.getElementById('c');
+const gl=cv.getContext('webgl2',{antialias:true,preserveDrawingBuffer:true});
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
+function prog(v,f){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,v));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));return p;}
+const BGV=`#version 300 es
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.-1.,0.,1.);}`;
+const BGF=`#version 300 es
+precision highp float;
+uniform vec2 uRes;uniform float uT;uniform float uBeat;uniform float uPulse;
+uniform vec3 uCam;uniform vec3 uR;uniform vec3 uU;uniform vec3 uF;uniform float uTanY;
+uniform float uLaser;uniform float uRainbow;uniform float uFlash;uniform float uDim;uniform float uHue;
+uniform vec4 uPad[3];uniform vec4 uFrog[3];
+out vec4 o;
+#define PI 3.14159265
+#define TAU 6.2831853
+float h11(float n){return fract(sin(n*127.1)*43758.5453);}
+float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec3 hsv(float h,float s,float v){vec3 k=clamp(abs(mod(h*6.+vec3(0.,4.,2.),6.)-3.)-1.,0.,1.);return v*mix(vec3(1.),k,s);}
+const vec3 SUN=vec3(0.,0.158,-0.987);
+vec3 sky(vec3 rd){
+  float y=rd.y;
+  vec3 c=mix(vec3(0.42,0.06,0.36),vec3(0.015,0.012,0.06),pow(clamp(y*2.4,0.,1.),0.55));
+  c+=vec3(0.9,0.25,0.4)*exp(-abs(y)*14.)*0.35;
+  vec2 sp=vec2(atan(rd.x,-rd.z),y)*60.;vec2 cl=floor(sp);vec2 f=fract(sp)-0.5;float hh=h21(cl);
+  c+=vec3(0.9,0.9,1.)*step(0.93,hh)*smoothstep(0.14,0.,length(f))*(0.55+0.45*sin(uT*4.+hh*90.))*smoothstep(0.03,0.2,y);
+  float front=smoothstep(0.05,0.2,-rd.z);
+  vec2 p2=rd.xy/max(-rd.z,0.05)-SUN.xy/(-SUN.z);
+  float r2=length(p2);float SR=0.33;float yy=p2.y/SR;
+  vec3 sunc=mix(vec3(1.,0.12,0.5),vec3(1.,0.86,0.3),clamp(yy*0.5+0.55,0.,1.));
+  float disc=smoothstep(SR,SR-0.005,r2)*front;
+  float slit=step(yy,0.15)*step(fract(yy*6.-uT*0.35),0.12+0.4*clamp(-yy,0.,1.));
+  disc*=1.-slit;
+  c=mix(c,sunc*1.25,disc);
+  c+=vec3(1.,0.25,0.55)*exp(-max(r2-SR,0.)*4.5)*0.38*front;
+  if(uRainbow>0.001){
+    float a=atan(p2.y,p2.x);
+    float rays=pow(0.5+0.5*sin(a*14.+uT*2.2),2.5);
+    c+=hsv(fract(a/TAU+uT*0.12),0.85,1.)*rays*uRainbow*0.9*smoothstep(SR*0.95,SR*1.35,r2)*exp(-r2*0.3)*front;
+  }
+  if(uLaser>0.001){
+    for(int k=0;k<7;k++){
+      float fk=float(k);
+      float a=PI*0.5+(fk-3.)*0.33*sin(uT*0.9+fk*0.7)+0.25*sin(uT*1.7+fk*1.3);
+      vec2 dir=vec2(cos(a),sin(a));vec2 q=p2-vec2(0.,-0.05);
+      float along=dot(q,dir);float d=abs(dot(q,vec2(-dir.y,dir.x)));
+      vec3 lc=mod(fk,3.)<1.?vec3(0.1,1.,0.9):(mod(fk,3.)<2.?vec3(1.,0.15,0.75):vec3(0.45,1.,0.2));
+      c+=lc*(0.0022/(d+0.0022))*step(0.,along)*exp(-along*0.5)*uLaser*(0.6+0.6*uPulse)*front;
+    }
+  }
+  return c;
+}
+float rip(float r,float R0){
+  float h=0.;
+  for(int k=0;k<3;k++){float age=fract(uBeat)+float(k);float x=r-(R0+age*1.25);h+=exp(-age*1.1)*exp(-x*x*9.)*sin(x*16.);}
+  return h;
+}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*uRes)/uRes.y;
+  vec3 rd=normalize(uF+uv.x*2.*uTanY*uR+uv.y*2.*uTanY*uU);
+  vec3 col;
+  if(rd.y<-0.0001){
+    float t=-uCam.y/rd.y;vec3 P=uCam+rd*t;
+    vec2 grad=vec2(0.);
+    for(int i=0;i<3;i++){
+      if(uPad[i].w<0.5)continue;
+      vec2 d=P.xz-uPad[i].xy;float r=length(d)+1e-4;float e=0.02;
+      grad+=d/r*(rip(r+e,uPad[i].z)-rip(r-e,uPad[i].z))/(2.*e);
+    }
+    grad+=0.06*vec2(sin(P.x*2.3+uT*1.1)+sin(P.z*3.1-uT*0.7),cos(P.z*2.7+uT*0.9)+cos(P.x*1.9-uT*1.3));
+    vec3 n=normalize(vec3(-grad.x*0.12,1.,-grad.y*0.12));
+    vec3 rr=reflect(rd,n);rr.y=abs(rr.y)+0.002;
+    float fres=0.03+0.97*pow(1.-max(dot(-rd,n),0.),5.);
+    vec3 skr=sky(rr);
+    vec3 wc=vec3(0.004,0.016,0.03)+skr*mix(0.3,1.,fres)*0.9;
+    vec2 cell=floor(P.xz/2.8);vec2 cc=(cell+0.5)*2.8+(vec2(h21(cell),h21(cell+3.1))-0.5)*1.2;float hr=h21(cell+7.7);
+    if(hr>0.35&&length(cc)>4.2){
+      vec2 dd=P.xz-cc;float r=length(dd);float R=0.35+0.45*h21(cell+1.9);
+      float an=abs(mod(atan(dd.y,dd.x)-hr*TAU+PI,TAU)-PI);
+      float inP=smoothstep(R,R-0.02,r)*(1.-step(an,0.24));
+      wc=mix(wc,vec3(0.01,0.05,0.025)+skr*0.05,inP);
+      wc+=hsv(uHue,0.7,1.)*exp(-abs(r-R)*28.)*0.35*(0.5+uPulse)*(1.-step(an,0.24));
+    }
+    float pm=0.;vec3 pc=vec3(0.);
+    vec3 neon=hsv(uHue,0.75,1.);
+    for(int i=0;i<3;i++){
+      if(uPad[i].w<0.5)continue;
+      vec2 d=P.xz-uPad[i].xy;float r=length(d);float R=uPad[i].z;
+      float a=atan(d.y,d.x);
+      float nd=abs(mod(a+2.35+PI,TAU)-PI);
+      float notch=step(nd,0.2*smoothstep(0.,0.4*R,r));
+      float inPad=smoothstep(R+0.01,R-0.01,r)*(1.-notch);
+      float veins=pow(abs(cos(a*8.)),60.)*smoothstep(0.15*R,0.5*R,r)*smoothstep(R,0.8*R,r);
+      float ringP=fract(uBeat);
+      float ring=exp(-pow((r/R-ringP)*9.,2.))*(1.-ringP);
+      float rings2=pow(0.5+0.5*cos(r/R*TAU*4.),24.);
+      float rim=exp(-abs(r-R+0.04)*35.);
+      vec3 base=vec3(0.012,0.07,0.035)*(0.8+0.4*sin(r*10.));
+      vec2 fd=P.xz-uFrog[i].xy;float shd=1.-0.7*exp(-dot(fd,fd)*3.2)/(1.+uFrog[i].z*3.);
+      vec3 c2=base*shd+neon*(veins*0.35+ring*1.1+rings2*0.1*(0.4+uPulse)+rim*(0.7+0.8*uPulse))*mix(1.,shd,0.6)+skr*0.07;
+      pc=mix(pc,c2,inPad);pm=max(pm,inPad);
+      wc+=neon*exp(-max(r-R,0.)*5.)*0.12*(0.5+uPulse)*step(R,r);
+    }
+    float fog=1.-exp(-t*0.035);
+    wc=mix(wc,sky(normalize(vec3(rd.x,0.02,rd.z)))*0.7,fog);
+    col=mix(wc,pc,pm);
+  }else col=sky(rd);
+  for(int i=0;i<14;i++){
+    float fi=float(i);
+    vec2 fp=vec2(h11(fi)*1.9-0.95,fract(h11(fi+11.)+uT*0.025*(0.5+h11(fi+5.)))-0.45);
+    fp+=0.03*vec2(sin(uT*1.3+fi),cos(uT*1.1+fi*1.7));
+    float d=length(uv-fp);
+    col+=vec3(0.75,1.,0.35)*0.00006/(d*d+0.00004)*(0.5+0.5*sin(uT*3.+fi*2.));
+  }
+  col*=uDim;col*=1.-0.32*dot(uv,uv);col+=vec3(uFlash);
+  o=vec4(col,1.);
+}`;
+const MV=`#version 300 es
+in vec3 aP;in vec3 aN;uniform mat4 uM;uniform mat3 uNm;uniform mat4 uVP;out vec3 vW;out vec3 vN;
+void main(){vec4 w=uM*vec4(aP,1.);vW=w.xyz;vN=uNm*aN;gl_Position=uVP*w;}`;
+const MF=`#version 300 es
+precision highp float;
+in vec3 vW;in vec3 vN;
+uniform vec3 uCol;uniform float uGloss;uniform float uEmis;uniform vec3 uCam;uniform vec3 uRimA;uniform vec3 uRimB;uniform float uPulse;uniform vec3 uPadC;
+out vec4 o;
+vec3 aces(vec3 x){return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.);}
+void main(){
+  if(uEmis>0.5){o=vec4(pow(aces(uCol*1.7),vec3(1./2.2)),1.);return;}
+  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);
+  vec3 L=normalize(vec3(0.3,0.8,0.8));vec3 L2=normalize(vec3(-0.6,0.3,0.5));
+  float ndl=max(dot(N,L),0.);float wrap=dot(N,L)*0.5+0.5;
+  vec3 lin=vec3(1.,0.95,0.95)*ndl*0.9+vec3(0.35,0.25,0.45)*wrap*0.55+vec3(0.3,0.2,0.35)*max(dot(N,L2),0.)*0.4+0.08;
+  lin+=uPadC*max(-N.y,0.)*0.55*(0.6+0.6*uPulse);
+  vec3 c=uCol*lin;
+  vec3 Hh=normalize(L+V);
+  c+=vec3(pow(max(dot(N,Hh),0.),mix(18.,150.,uGloss))*mix(0.2,1.6,uGloss));
+  float fres=pow(1.-max(dot(N,V),0.),4.);
+  vec3 R=reflect(-V,N);
+  vec3 env=R.y>0.?mix(vec3(0.55,0.12,0.45),vec3(0.06,0.05,0.18),clamp(R.y*2.,0.,1.)):vec3(0.03,0.08,0.06);
+  env+=vec3(1.)*smoothstep(0.55,0.95,R.y)*0.7;
+  env+=vec3(1.,0.55,0.5)*pow(max(dot(R,normalize(vec3(0.,0.16,-1.))),0.),24.)*1.5;
+  env+=uRimA*smoothstep(0.3,0.95,R.x)*0.7+uRimB*smoothstep(0.3,0.95,-R.x)*0.7;
+  c+=env*mix(0.06,1.,fres)*uGloss*0.9;
+  c+=(uRimA*max(N.x,0.)+uRimB*max(-N.x,0.))*fres*1.4*(0.7+0.6*uPulse);
+  o=vec4(pow(aces(c),vec3(1./2.2)),1.);
+}`;
+const bgP=prog(BGV,BGF),mP=prog(MV,MF);
+const U=(p,n)=>gl.getUniformLocation(p,n);
+const bu={};for(const n of['uRes','uT','uBeat','uPulse','uCam','uR','uU','uF','uTanY','uLaser','uRainbow','uFlash','uDim','uHue','uPad','uFrog'])bu[n]=U(bgP,n);
+const mu={};for(const n of['uM','uNm','uVP','uCol','uGloss','uEmis','uCam','uRimA','uRimB','uPulse','uPadC'])mu[n]=U(mP,n);
+const emptyVAO=gl.createVertexArray();
+const aPl=gl.getAttribLocation(mP,'aP'),aNl=gl.getAttribLocation(mP,'aN');
+function makeMesh(nu,nv){const P=[],I=[];for(let j=0;j<=nv;j++){const v=j/nv*Math.PI;for(let i=0;i<=nu;i++){const u=i/nu*TAU;P.push(Math.sin(v)*Math.cos(u),Math.cos(v),Math.sin(v)*Math.sin(u));}}for(let j=0;j<nv;j++)for(let i=0;i<nu;i++){const a=j*(nu+1)+i,b=a+nu+1;I.push(a,b,a+1,b,b+1,a+1);}
+  const vao=gl.createVertexArray();gl.bindVertexArray(vao);const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(P),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(aPl);gl.vertexAttribPointer(aPl,3,gl.FLOAT,false,0,0);if(aNl>=0){gl.enableVertexAttribArray(aNl);gl.vertexAttribPointer(aNl,3,gl.FLOAT,false,0,0);}
+  const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(I),gl.STATIC_DRAW);gl.bindVertexArray(null);return{vao,n:I.length};}
+const HI=makeMesh(30,20),LO=makeMesh(12,8);
+
+const add=(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s],sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const norm=a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return[a[0]/l,a[1]/l,a[2]/l];};
+const lerp3=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+function mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+function persp(f,asp,n,fa){const t=1/Math.tan(f/2),o=new Float32Array(16);o[0]=t/asp;o[5]=t;o[10]=(fa+n)/(n-fa);o[11]=-1;o[14]=2*fa*n/(n-fa);return o;}
+function lookAt(e,c,u){const z=norm(sub(e,c)),x=norm(cross(u,z)),y=cross(z,x);return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,e),-dot(y,e),-dot(z,e),1]);}
+function basis(x,y,z,p,sx,sy,sz){return new Float32Array([x[0]*sx,x[1]*sx,x[2]*sx,0,y[0]*sy,y[1]*sy,y[2]*sy,0,z[0]*sz,z[1]*sz,z[2]*sz,0,p[0],p[1],p[2],1]);}
+const trs=(p,s)=>basis([1,0,0],[0,1,0],[0,0,1],p,s[0],s[1],s[2]);
+const translate=p=>trs(p,[1,1,1]),scale=s=>trs([0,0,0],s);
+function rotY(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,-s,0,0,1,0,0,s,0,c,0,0,0,0,1]);}
+function rotZ(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,s,0,0,-s,c,0,0,0,0,1,0,0,0,0,1]);}
+function rotX(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,0,c,s,0,0,-s,c,0,0,0,0,1]);}
+const xf=(M,p)=>[M[0]*p[0]+M[4]*p[1]+M[8]*p[2]+M[12],M[1]*p[0]+M[5]*p[1]+M[9]*p[2]+M[13],M[2]*p[0]+M[6]*p[1]+M[10]*p[2]+M[14]];
+const xd=(M,p)=>[M[0]*p[0]+M[4]*p[1]+M[8]*p[2],M[1]*p[0]+M[5]*p[1]+M[9]*p[2],M[2]*p[0]+M[6]*p[1]+M[10]*p[2]];
+const rotYv=(v,a)=>{const c=Math.cos(a),s=Math.sin(a);return[v[0]*c+v[2]*s,v[1],-v[0]*s+v[2]*c];};
+const fr=x=>x-Math.floor(x),clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const sstep=(a,b,x)=>{x=clamp((x-a)/(b-a),0,1);return x*x*(3-2*x);};
+const easeIO=x=>{x=clamp(x,0,1);return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;};
+function hsv(h,s,v){const f=n=>{const k=(n+h*6)%6;return v-v*s*Math.max(0,Math.min(k,4-k,1));};return[f(5),f(3),f(1)];}
+function nmat(m){const a=m[0],b=m[1],c=m[2],d=m[4],e=m[5],f=m[6],g=m[8],h=m[9],i=m[10];const C00=e*i-h*f,C01=h*c-b*i,C02=b*f-e*c,C10=g*f-d*i,C11=a*i-g*c,C12=d*c-a*f,C20=d*h-g*e,C21=g*b-a*h,C22=a*e-d*b;const det=a*C00+d*C01+g*C02||1;return new Float32Array([C00/det,C10/det,C20/det,C01/det,C11/det,C21/det,C02/det,C12/det,C22/det]);}
+let cur=null;
+function drawM(M,col,g,e,mesh){mesh=mesh||HI;if(cur!==mesh){gl.bindVertexArray(mesh.vao);cur=mesh;}gl.uniformMatrix4fv(mu.uM,false,M);gl.uniformMatrix3fv(mu.uNm,false,nmat(M));gl.uniform3fv(mu.uCol,col);gl.uniform1f(mu.uGloss,g);gl.uniform1f(mu.uEmis,e);gl.drawElements(gl.TRIANGLES,mesh.n,gl.UNSIGNED_SHORT,0);}
+function orientBasis(d){const y=norm(d);const ref=Math.abs(y[1])<0.95?[0,1,0]:[1,0,0];const x=norm(cross(ref,y));const z=cross(x,y);return[x,y,z];}
+function seg(A,B,r,col,g,mesh){const d=sub(B,A);const L=Math.hypot(d[0],d[1],d[2])||1e-4;const[x,y,z]=orientBasis(d);drawM(basis(x,y,z,scl(add(A,B),0.5),r,L*0.56,r),col,g,0,mesh);}
+function ball(p,r,col,g,mesh){drawM(trs(p,[r,r,r]),col,g,0,mesh);}
+function visorPt(VC,VR,dx,dy,lift){const q=1-dx*dx/(VR[0]*VR[0])-dy*dy/(VR[1]*VR[1]);const dz=VR[2]*Math.sqrt(Math.max(q,0.02));const n=norm([dx/(VR[0]*VR[0]),dy/(VR[1]*VR[1]),dz/(VR[2]*VR[2])]);return{p:[VC[0]+dx+n[0]*lift,VC[1]+dy+n[1]*lift,VC[2]+dz+n[2]*lift],n};}
+function flatOn(p,n,sx,sy,sz){const x=norm(cross([0,1,0],n));const y=cross(n,x);return basis(x,y,n,p,sx,sy,sz);}
+function ik2(A,T,la,lb,pole){const d=sub(T,A);let dist=Math.hypot(d[0],d[1],d[2]);const u=norm(d);dist=clamp(dist,Math.abs(la-lb)+1e-3,la+lb-1e-3);const ca=(la*la+dist*dist-lb*lb)/(2*la*dist),sa=Math.sqrt(Math.max(0,1-ca*ca));const v=norm(sub(pole,scl(u,dot(pole,u))));return[add(A,add(scl(u,la*ca),scl(v,la*sa))),add(A,scl(u,dist))];}
+
+const RED=[0.78,0.02,0.03],WHITE=[0.8,0.8,0.83],DARK=[0.025,0.025,0.03],BLACK=[0.008,0.008,0.01],EYE=[0.08,1.0,0.6],EYEOFF=[0.012,0.04,0.035],PINK=[0.6,0.08,0.22];
+const EYES={normal:[".###.","#####","#####","#####",".###."],blink:[".....",".....","#####",".....","....."],happy:["..#..",".###.","##.##","#...#","....."],heart:[".#.#.","#####","#####",".###.","..#.."],star:["..#..","..#..","#####","..#..","..#.."],squintL:["#....",".##..","...##",".##..","#...."],squintR:["....#","..##.","##...","..##.","....#"]};
+const MOUTH={smile:["#.........#",".#.......#.","..#######.."],open:["..#######..",".#.......#.","..#######.."],grin:["###########",".#.......#.","..#######.."],w:["#....#....#",".#..#.#..#.","..##...##.."],flat:["...........",".#########.","..........."]};
+
+function frogPose(t,j,base,s0,yaw0){
+  const dly=(t>=12&&t<16)?j*0.12:0;
+  const b=t*2-dly,ph=fr(b),hit=t<18?Math.exp(-ph*5):0;
+  let jump=0,h=0.6,pitch=0.3,yaw=0,roll=0,sq=1,ext=0,up=[0,0],wave=[0,0],eyes='normal',mouth='smile';
+  if(t<4){
+    h=0.6-0.07*hit;sq=1-0.06*hit;pitch=0.3+0.07*hit;yaw=0.25*Math.sin(Math.PI*b/4);roll=0.08*Math.sin(Math.PI*b/2);
+    if(t>2){const w=sstep(2,2.4,t);up=[0.55*w*(0.5+0.5*Math.sin(Math.PI*b)),0.55*w*(0.5-0.5*Math.sin(Math.PI*b))];}
+    eyes=((t>1.55&&t<1.72)||(t>3.25&&t<3.42))?'blink':'normal';
+  }else if(t<8){
+    h=0.66-0.07*hit;sq=1-0.06*hit;pitch=0.28;yaw=0.38*Math.sin(Math.PI*b/2);roll=-0.12*Math.sin(Math.PI*b/2);
+    const u=0.5+0.5*Math.sin(Math.PI*b);up=[1-u,u];wave=[Math.sin(TAU*b),Math.sin(TAU*b+Math.PI)];
+    eyes='happy';mouth=Math.floor(b)%2?'open':'smile';
+  }else if(t<12){
+    const lt=t-8;
+    if(lt<2){const sp=easeIO(lt/2);yaw=sp*TAU;const a=clamp((ph-0.1)/0.8,0,1);jump=0.22*Math.sin(Math.PI*a);ext=0.4*Math.sin(Math.PI*a);h=0.62-0.08*hit;up=[0.85,0.85];wave=[Math.sin(TAU*b),Math.sin(TAU*b)];eyes='star';mouth='grin';}
+    else if(lt<3){const ph2=fr(b*2),hit2=Math.exp(-ph2*5);h=0.62-0.15*hit2;sq=1-0.08*hit2;pitch=0.3+0.12*hit2;yaw=0.3*Math.sin(Math.PI*b);mouth='w';}
+    else{const a=sstep(0,1,lt-3);h=0.62-0.2*a;pitch=0.3+0.25*a;sq=1-0.06*a;roll=0.04*Math.sin(t*70)*a;eyes='squint';mouth='flat';}
+  }else if(t<16){
+    const lt=t-12;
+    if(lt<2){const a=clamp((ph-0.1)/0.8,0,1),s=Math.sin(Math.PI*a);jump=0.62*Math.pow(s,0.85);ext=s;h=0.62-0.12*hit;sq=1-0.1*hit+0.05*s;
+      const k=Math.floor(b);const y0=(k%2?1:-1)*0.4;yaw=y0-2*y0*sstep(0,1,a);pitch=0.3-0.15*s;up=[s,s];eyes=k%4==3?'star':'happy';mouth='grin';}
+    else{h=0.64-0.1*hit;sq=1-0.07*hit;roll=0.16*Math.sin(Math.PI*b);yaw=0.2*Math.sin(Math.PI*b/2);up=[1,1];wave=[Math.sin(TAU*b),Math.sin(TAU*b+Math.PI)];eyes='heart';mouth='open';}
+  }else{
+    const lt=t-16;h=0.62-0.05*hit;yaw=0.15*Math.sin(Math.PI*b/4);roll=0.05*Math.sin(Math.PI*b/2);up=[0,1];wave=[0,Math.sin(TAU*t*1.5)];
+    eyes=(lt>1.6&&lt<1.75)?'blink':'heart';
+  }
+  const G=mul(translate([base[0],jump,base[2]]),mul(rotY(yaw+yaw0),scale([s0,s0,s0])));
+  const B=mul(G,mul(translate([0,h,0]),mul(rotZ(roll),mul(rotX(-pitch),scale([1+(1-sq)*0.6,sq,1+(1-sq)*0.6])))));
+  return{G,B,s0,ext,up,wave,eyes,mouth,jump,x:base[0],z:base[2]};
+}
+function drawFrog(F){
+  const{G,B,s0}=F;const DB=(L,c,g,e,m)=>drawM(mul(B,L),c,g,e,m);
+  DB(trs([0,0,0],[0.6,0.4,0.66]),RED,0.9,0);
+  DB(trs([0,-0.17,0.04],[0.5,0.24,0.56]),WHITE,0.75,0);DB(trs([0,-0.06,-0.02],[0.585,0.07,0.645]),DARK,0.7,0);
+  DB(trs([0,0.385,-0.2],[0.17,0.035,0.13]),WHITE,0.8,0);
+  for(const s of[-1,1]){
+    DB(trs([s*0.27,0.3,0.3],[0.2,0.2,0.2]),RED,0.9,0);
+    DB(trs([s*0.27,0.33,0.42],[0.162,0.162,0.09]),WHITE,0.8,0);
+    const EC=[s*0.27,0.33,0.44],ER=[0.14,0.14,0.09];DB(trs(EC,ER),BLACK,1,0);
+    let pat=EYES[F.eyes]||EYES.normal;if(F.eyes==='squint')pat=s<0?EYES.squintL:EYES.squintR;
+    for(let r=0;r<5;r++)for(let c=0;c<5;c++){const on=pat[r][c]==='#';const v=visorPt(EC,ER,(c-2)*0.027,(2-r)*0.027,0.003);DB(flatOn(v.p,v.n,on?0.0115:0.008,on?0.0115:0.008,0.004),on?EYE:EYEOFF,0,1,LO);}
+    const ck=visorPt([0,0,0],[0.6,0.4,0.66],s*0.42,0.04,0.002);DB(flatOn(ck.p,ck.n,0.06,0.034,0.005),PINK,0,1,LO);
+  }
+  const MC=[0,-0.02,0.52],MR=[0.36,0.11,0.16];DB(trs(MC,MR),BLACK,1,0);
+  const mp=MOUTH[F.mouth]||MOUTH.smile;
+  for(let r=0;r<3;r++)for(let c=0;c<11;c++){const on=mp[r][c]==='#';const v=visorPt(MC,MR,(c-5)*0.03,(1-r)*0.028,0.003);DB(flatOn(v.p,v.n,on?0.0115:0.008,on?0.0115:0.008,0.004),on?EYE:EYEOFF,0,1,LO);}
+  for(const s of[-1,1]){
+    const si=s<0?0:1;
+    const hip=xf(B,[s*0.4,-0.13,-0.3]);
+    const ankG=lerp3([s*0.7,0.07,-0.12],[s*0.5,0.07-0.45,-0.42],F.ext);
+    const ank=xf(G,ankG);
+    const[K,E]=ik2(hip,ank,0.5*s0,0.5*s0,xd(G,[s*1.0,0.9,0.35]));
+    ball(hip,0.12*s0,WHITE,0.7);seg(hip,K,0.105*s0,RED,0.85);ball(K,0.1*s0,WHITE,0.7);seg(K,E,0.085*s0,RED,0.85);ball(E,0.08*s0,WHITE,0.7);
+    const fd=norm(xd(G,lerp3([s*0.35,0,1],[s*0.2,-0.8,-0.55],F.ext)));const toe=add(E,scl(fd,0.3*s0));
+    seg(E,toe,0.065*s0,RED,0.85);
+    for(const a of[-0.5,0,0.5]){const tp=add(toe,scl(norm(rotYv(fd,a)),0.13*s0));seg(toe,tp,0.03*s0,RED,0.8,LO);ball(tp,0.042*s0,DARK,0.6,LO);}
+    const shd=xf(B,[s*0.36,-0.12,0.34]);
+    const planted=xf(G,[s*0.34,0.06,0.6]);
+    const raised=xf(B,[s*0.62+0.12*F.wave[si]*s,0.62+0.06*F.wave[si],0.28]);
+    const hand=lerp3(planted,raised,F.up[si]);
+    const[El,Wr]=ik2(shd,hand,0.36*s0,0.36*s0,xd(G,[s*1.0,-0.2,-0.6]));
+    ball(shd,0.095*s0,WHITE,0.7);seg(shd,El,0.075*s0,RED,0.85);ball(El,0.075*s0,WHITE,0.7);seg(El,Wr,0.065*s0,RED,0.85);ball(Wr,0.062*s0,WHITE,0.7);
+    const hd=norm(xd(G,lerp3([s*0.3,-0.1,1],[s*0.3,1,0.2],F.up[si])));const palm=add(Wr,scl(hd,0.1*s0));
+    seg(Wr,palm,0.05*s0,RED,0.85,LO);
+    for(const a of[-0.55,0,0.55]){const tp=add(palm,scl(norm(rotYv(hd,a)),0.09*s0));seg(palm,tp,0.022*s0,RED,0.8,LO);ball(tp,0.032*s0,DARK,0.6,LO);}
+  }
+}
+const MOOD={normal:'chill',blink:'chill',happy:'happy',star:'spinning',squint:'charging...',heart:'in love'};
+const hud=document.getElementById('hud'),tag=document.getElementById('tag'),title=document.getElementById('title'),fade=document.getElementById('fade');
+window.renderAt=function(t){
+  const b=t*2,ph=fr(b);
+  let pulse=t<18?Math.exp(-ph*5):0;if(t>=11&&t<12)pulse=0.35*Math.exp(-fr(b*2)*5);
+  const sec=t<4?0:t<8?1:t<12?2:t<16?3:4,tb=[0,4,8,12,16][sec];
+  const flash=sec>0?(sec==3?0.8:0.3)*Math.exp(-(t-tb)*9):0;
+  let rA,rB,hue;
+  if(sec==0||sec==4){rA=[0.25,0.55,1.0];rB=[1.0,0.25,0.6];hue=0.38;}
+  else if(sec==1){rA=[0.1,1.0,0.85];rB=[1.0,0.15,0.75];hue=0.42;}
+  else if(sec==2){rA=hsv(fr(t*0.25),0.85,1);rB=hsv(fr(t*0.25+0.5),0.85,1);hue=fr(0.38+t*0.08);}
+  else{rA=hsv(fr(t*0.6),0.85,1);rB=hsv(fr(t*0.6+0.5),0.85,1);hue=fr(t*0.35);}
+  const laser=[0,sstep(4,4.6,t),(t>=11?0.25:0.8),1.2,0.35][sec],rainbow=sec==3?1:(sec==4?0.3:0);
+  let eye,tgt;
+  if(sec==0){eye=[0.6*Math.sin(t*0.4),0.85,4.6-0.2*t];tgt=[0,0.55,0];}
+  else if(sec==1){const u=(t-4)/4;eye=[-1.0+1.4*u,0.45,3.9];tgt=[0,0.75,0];}
+  else if(sec==2){const a=-0.7+0.35*(t-8);eye=[4.2*Math.sin(a),1.1,4.2*Math.cos(a)];tgt=[0,0.5,0];}
+  else if(sec==3){eye=[0.4*Math.sin(t*0.8),1.35,7.4-0.2*(t-12)];tgt=[0,0.6,0];}
+  else{eye=[0,0.95,5.2];tgt=[0,1.15,0];}
+  const fovy=34*Math.PI/180,tanY=Math.tan(fovy/2);
+  const Fw=norm(sub(tgt,eye)),Rt=norm(cross(Fw,[0,1,0])),Up=cross(Rt,Fw);
+  const frogs=[];
+  if(sec==3){for(let j=0;j<3;j++){const x=(j-1)*2.35,z=j==1?0.3:0,s0=j==1?1:0.85;frogs.push(frogPose(t,j,[x,0,z],s0,(1-j)*0.3));}}
+  else frogs.push(frogPose(t,0,[0,0,0],1,0));
+  const pads=new Float32Array(12),fz=new Float32Array(12);
+  frogs.forEach((F,i)=>{pads.set([F.x,F.z,sec==3?(i==1?1.1:0.95):1.35,1],i*4);fz.set([F.x,F.z,F.jump,1],i*4);});
+  gl.viewport(0,0,W,H);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);gl.useProgram(bgP);gl.bindVertexArray(emptyVAO);cur=null;
+  gl.uniform2f(bu.uRes,W,H);gl.uniform1f(bu.uT,t);gl.uniform1f(bu.uBeat,b);gl.uniform1f(bu.uPulse,pulse);
+  gl.uniform3fv(bu.uCam,eye);gl.uniform3fv(bu.uR,Rt);gl.uniform3fv(bu.uU,Up);gl.uniform3fv(bu.uF,Fw);gl.uniform1f(bu.uTanY,tanY);
+  gl.uniform1f(bu.uLaser,laser);gl.uniform1f(bu.uRainbow,rainbow);gl.uniform1f(bu.uFlash,flash);gl.uniform1f(bu.uDim,sec==4?0.85:1);gl.uniform1f(bu.uHue,hue);
+  gl.uniform4fv(bu.uPad,pads);gl.uniform4fv(bu.uFrog,fz);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.useProgram(mP);cur=null;
+  const VP=mul(persp(fovy,W/H,0.1,80),lookAt(eye,tgt,[0,1,0]));
+  gl.uniformMatrix4fv(mu.uVP,false,VP);gl.uniform3fv(mu.uCam,eye);gl.uniform3fv(mu.uRimA,rA);gl.uniform3fv(mu.uRimB,rB);gl.uniform1f(mu.uPulse,pulse);gl.uniform3fv(mu.uPadC,hsv(hue,0.75,1));
+  frogs.forEach(drawFrog);
+  const F0=frogs[sec==3?1:0];
+  hud.textContent=`RIBBO-01 // DANCE MODE\nbpm 120\nlegs 4 / 4\nbeat ${Math.floor(b)%4+1} / 4\nhop height ${(F0.jump*0.25).toFixed(2)} m\nmood: ${MOOD[F0.eyes]}`;
+  hud.style.opacity=1-sstep(16,16.3,t);
+  tag.style.opacity=sstep(0.3,0.7,t)*(1-sstep(3.3,3.8,t));
+  const a=sstep(16.25,16.85,t);title.style.opacity=a;title.style.transform=`translateY(${(1-a)*-22}px) scale(${0.9+0.1*a})`;
+  fade.style.opacity=sstep(18.5,19.0,t);
+  gl.finish();return 1;
+};
+window.ready=true;
+</script></body></html>

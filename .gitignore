@@ -1,0 +1,4 @@
+build/
+music.wav
+__pycache__/
+.DS_Store
